@@ -185,7 +185,7 @@ class TLK():
         self.blanks.update(range(max_value + 1, id))
         return self.existing[text]
 
-    def add_2da_labels(self, name : str) -> pd.DataFrame:
+    def add_2da_labels(self, name : str, spell_name_desc_offset : int = 5000) -> pd.DataFrame:
         '''Updates this TLK object with the contents of a 2DA DataFrame.'''
         # Load the 2DA and JSON files.
         df_2da  = IO.read_2da(os.path.join(self.input_2das, f'{name}{TWODA_SUFFIX}'))
@@ -199,27 +199,30 @@ class TLK():
 
         # Spells.2da has a different structure, so we'll handle it separately.
         if name == 'spells':
-            return self.add_spell_labels(df_2da, df_json)
+            return self.add_spell_labels(df_2da, df_json, spell_name_desc_offset)
 
         # Generate TLK references for all columns, then update the 2DA file.
         df_json = df_json.map(self.add, na_action='ignore')
         df_2da.update(df_json, overwrite=True)
         return df_2da
 
-    def add_spell_labels(self, df_2da : pd.DataFrame, df_json : pd.DataFrame) -> pd.DataFrame:
+    def add_spell_labels(self, df_2da : pd.DataFrame, df_json : pd.DataFrame, name_desc_offset : int) -> pd.DataFrame:
         '''Updates this TLK object with the contents of the spells.2da DataFrame.'''
-        # Spells require static Name and SpellDesc IDs in the TLK file.
-        STATIC_COLUMNS = ('Name', 'SpellDesc')
-        STATIC_COLUMN_OFFSET = 5000
+        # If a name_desc_offset was specified, assign static Name and SpellDesc IDs in the TLK file.
+        STATIC_COLUMNS = ('Name', 'SpellDesc') if name_desc_offset > 0 else ()
 
         # Most columns can be handled normally.
         for column in df_json.columns.difference(STATIC_COLUMNS):
             df_json[column] = df_json[column].map(self.add, na_action='ignore')
+        df_2da.update(df_json, overwrite=True)
+
+        if not STATIC_COLUMNS:
+            return df_2da
 
         # Determine static IDs via the 2DA row index and column order.
         df_ids = pd.DataFrame(index=df_json.index)
         for i, column in enumerate(STATIC_COLUMNS):
-            df_ids[column] = STATIC_COLUMN_OFFSET + i + len(STATIC_COLUMNS) * df_ids.index
+            df_ids[column] = name_desc_offset + i + len(STATIC_COLUMNS) * df_ids.index
             df_ids[column] = df_ids[column].where(df_json[column].notna(), df_json[column])
 
         # Update this TLK with df_id's ids and df_json's TLK strings.
@@ -416,7 +419,8 @@ class TlkBuilder():
         output_folder     : str|List[str],
         output_tlk_name   : str = '',
         output_hak_name   : str = '',
-        tlk_reference     : str = ''
+        tlk_reference     : str = '',
+        spell_offset      : int = 5000,
         ) -> None:
         '''Initializes a new TlkBuilder instance.'''
         # Store the input and output directories.
@@ -439,7 +443,7 @@ class TlkBuilder():
             self.tlk = TLK(input_2da_folder, input_json_folder)
 
         # Process all 2DA files, then create the HAK and TLK.
-        processed_2das = self.process_2das()
+        processed_2das = self.process_2das(spell_name_desc_offset=spell_offset)
         self.write_output(processed_2das)
 
         if isinstance(output_folder, list) and len(output_folder) > 1:
@@ -453,11 +457,11 @@ class TlkBuilder():
                     continue
         exit(0)
 
-    def process_2das(self) -> Dict[str, pd.DataFrame]:
+    def process_2das(self, spell_name_desc_offset : int = 5000) -> Dict[str, pd.DataFrame]:
         '''Processes a 2DA file and updates the TLK object.'''
         print('Generating TLK references...')
         # Parse all 2DA files and update the TLK with their JSON strings.
-        processed = {os.path.basename(file): self.tlk.add_2da_labels(os.path.basename(file)[:-4])
+        processed = {os.path.basename(file): self.tlk.add_2da_labels(os.path.basename(file)[:-4], spell_name_desc_offset)
                      for file in sorted(glob(os.path.join(self.input_2das, f'*{TWODA_SUFFIX}')))}
         # Also load 2DA files without corresponding json files to clear their whitespace and validate them.
         processed.update({os.path.basename(file): IO.read_2da(file, validate_index=False)
