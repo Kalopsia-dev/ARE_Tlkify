@@ -1,5 +1,4 @@
 from typing import Dict, List # For advanced type hints.
-from pathlib import Path      # For OS-agnostic path operations.
 from glob import glob         # For batch file operations.
 import pandas as pd           # For advanced data manipulation.
 import contextlib             # For safely removing files.
@@ -9,45 +8,21 @@ import json                   # For storing script hashes.
 import sys                    # For command line arguments.
 import os                     # For OS-level operations.
 
-# Environment constants
-AREDEV_DIR     = os.getcwd()
-SERVER_DIR     = os.path.join(AREDEV_DIR, 'server')
-TEMP_DIR       = os.path.join(AREDEV_DIR, 'tmp', '.tlkify')
-ORIGINAL_TLK   = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'Tlk input', 'original.json')
-INPUT_JSON_DIR = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'Input json')
-INPUT_2DA_DIR  = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'Input 2das')
-STATIC_2DA_DIR = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'arelith_2da')
-NWN_ERF        = os.path.join(AREDEV_DIR, 'nwn_erf.exe' if sys.platform == 'win32' else 'nwn_erf')
-NWN_TLK        = os.path.join(AREDEV_DIR, 'nwn_tlk.exe' if sys.platform == 'win32' else 'nwn_tlk')
+class IOHelper():
+    '''A collection of helpers for reading and writing 2DA, TLK and JSON label files.'''
 
-# Load the game directory from the AREDev builder config file.
-ENV_CONFIG = os.path.join(AREDEV_DIR, 'config', 'builder.conf')
-if os.path.exists(ENV_CONFIG):
-    with open(ENV_CONFIG) as env_config:
-        for line in env_config:
-            if line.startswith('NWN_HOME_PATH'):
-                USER_DIR = line.split('=')[1].strip()
-                if '!HOMEPATH!' in USER_DIR:
-                    # Replace the !HOMEPATH! token with the user's home directory.
-                    USER_DIR = os.path.join(Path.home(), USER_DIR.split('!HOMEPATH!')[1].strip(os.sep))
-                break
-# We cannot compile scripts without locating the game directory. Exit with an error.
-else: print(f'Error: Unable to locate AREDev builder config file at "{ENV_CONFIG}"') ; exit(1)
+    def __init__(self, nwn_erf : str, nwn_tlk : str) -> None:
+        '''Initializes an IO object with the given paths to the NWN_Erf and NWN_Tlk binaries.'''
+        # Validate the given paths.
+        if not os.path.exists(nwn_erf):
+            print(f'Error: Unable to locate nwn_erf at "{nwn_erf}"') ; exit(1)
+        if not os.path.exists(nwn_tlk):
+            print(f'Error: Unable to locate nwn_tlk at "{nwn_tlk}"') ; exit(1)
+        # Store the binary paths for later use.
+        self.nwn_erf = nwn_erf
+        self.nwn_tlk = nwn_tlk
 
-# Validate the above environment constants.
-if not os.path.exists(USER_DIR):       print(f'Error: Unable to locate NWN home directory at "{USER_DIR}"')         ; exit(1)
-if not os.path.exists(SERVER_DIR):     print(f'Error: Unable to locate server directory at "{SERVER_DIR}"')         ; exit(1)
-if not os.path.exists(STATIC_2DA_DIR): print(f'Error: Unable to locate static 2DA directory at "{STATIC_2DA_DIR}"') ; exit(1)
-if not os.path.exists(INPUT_2DA_DIR):  print(f'Error: Unable to locate input 2DA directory at "{INPUT_2DA_DIR}"')   ; exit(1)
-if not os.path.exists(INPUT_JSON_DIR): print(f'Error: Unable to locate input JSON directory at "{INPUT_JSON_DIR}"') ; exit(1)
-if not os.path.exists(ORIGINAL_TLK):   print(f'Error: Unable to locate original TLK file at "{ORIGINAL_TLK}"')      ; exit(1)
-if not os.path.exists(NWN_ERF):        print(f'Error: Unable to locate nwn_erf at "{NWN_ERF}"')                     ; exit(1)
-if not os.path.exists(NWN_TLK):        print(f'Error: Unable to locate nwn_tlk at "{NWN_TLK}"')                     ; exit(1)
-if not os.path.exists(TEMP_DIR):       os.makedirs(TEMP_DIR) # No need to exit; we'll just create the directory.
-
-class IO():
-    '''A collection of utility functions for reading and writing 2DA, TLK and JSON label files.'''
-
+    @staticmethod
     def read_labels(json_path : str, silent_warnings : bool = False) -> pd.DataFrame:
         '''Reads a JSON file containing TLK labels and returns it as a pandas DataFrame.'''
         if not os.path.isfile(json_path) or not json_path.lower().endswith('.json'):
@@ -72,6 +47,7 @@ class IO():
             df = df[~df.index.duplicated(keep='last')]
         return df
 
+    @staticmethod
     def read_2da(file_path : str, validate_index : bool = True) -> pd.DataFrame:
         '''Converts a 2DA file to a pandas DataFrame.'''
         if not os.path.isfile(file_path) or not file_path.lower().endswith('.2da'):
@@ -90,6 +66,7 @@ class IO():
         df.index.name = 'id'
         return df
 
+    @staticmethod
     def write_2da(df_2da : pd.DataFrame, file_path : str) -> None:
         "Writes a DataFrame representing 2DA contents to a 2DA file."
         # Export the DataFrame to a CSV file.
@@ -102,25 +79,37 @@ class IO():
         with open(file_path, 'w') as f:
             f.write(text + '\n')
 
-    def write_hak(input_directory : str, output_path : str) -> None:
+    def write_hak(self, input_directory : str, output_path : str) -> None:
         '''Packages the contents of a directory into a HAK file.'''
         # Ensure the given directory is valid.
         if not os.path.isdir(input_directory):
             raise FileNotFoundError(f'Unable to proceed due to invalid directory: {input_directory}')
         # Package the directory into a HAK file using nwn_erf.
-        subprocess.run([NWN_ERF,
-                        '-e', 'HAK',        # Override ERF header type to HAK.
-                        '-c', input_directory,  # Create archive from input files or directories.
-                        '-f', output_path]) # Operate on FILE instead of stdin/out
+        subprocess.run([self.nwn_erf,
+                        '-e', 'HAK',           # Override ERF header type to HAK.
+                        '-c', input_directory, # Create archive from input files or directories.
+                        '-f', output_path])    # Operate on FILE instead of stdin/out
 
 class TLK():
     '''A class representing the contents of a TLK file.'''
 
+    # Define the temporary directory and file for TLK operations.
+    TEMP_DIR  = os.path.join(os.getcwd(), 'tmp', '.tlkify')
     TEMP_FILE = os.path.join(TEMP_DIR, f'.tmp.json')
-    OFFSET = 16777216 # To differentiate custom TLK ids from defaults.
 
-    def __init__(self, input_2da_folder : str, input_json_folder  : str) -> None:
+    # An offset that differentiates custom TLK entries from standard ones.
+    OFFSET = 16777216
+
+    def __init__(self, input_2da_folder : str, input_json_folder  : str, io_helper : IOHelper) -> None:
         '''Initializes an empty TLK object.'''
+        # Validate the given IOHelper object.
+        if not isinstance(io_helper, IOHelper):
+            raise ValueError(f'Invalid IOHelper object provided: {io_helper}')
+        self.io = io_helper
+
+        # Ensure the temporary directory exists.
+        os.makedirs(TLK.TEMP_DIR, exist_ok=True)
+
         # Store the input directories.
         self.input_2das  = input_2da_folder
         self.input_json  = input_json_folder
@@ -183,8 +172,8 @@ class TLK():
     def add_2da_labels(self, name : str, spell_name_desc_offset : int = 5000) -> pd.DataFrame:
         '''Updates this TLK object with the contents of a 2DA DataFrame.'''
         # Load the 2DA and JSON files.
-        df_2da  = IO.read_2da(os.path.join(self.input_2das, f'{name}.2da'))
-        df_json = IO.read_labels(os.path.join(self.input_json, f'{name}.json'))
+        df_2da  = IOHelper.read_2da(os.path.join(self.input_2das, f'{name}.2da'))
+        df_json = IOHelper.read_labels(os.path.join(self.input_json, f'{name}.json'))
         df_json = self.add_missing_labels(name, df_2da, df_json)
 
         # Drop any columns that are not in the 2DA file.
@@ -267,8 +256,8 @@ class TLK():
         elif name == 'iprp_spells':
             try:
                 # Load spells.2da and spells.json to reference spell names. Exclude feat spells and abilities.
-                df_spells = IO.read_labels(os.path.join(self.input_json, f'spells.json'), silent_warnings=True).join(
-                            IO.read_2da(os.path.join(self.input_2das, f'spells.2da')), rsuffix='_2da')[['Name', 'FeatID', 'UserType']]
+                df_spells = IOHelper.read_labels(os.path.join(self.input_json, f'spells.json'), silent_warnings=True).join(
+                            IOHelper.read_2da(os.path.join(self.input_2das, f'spells.2da')), rsuffix='_2da')[['Name', 'FeatID', 'UserType']]
                 df_spells = df_spells[(df_spells['FeatID'] == '****') & (df_spells['UserType'] == '1')]
             except FileNotFoundError:
                 print(f'W: spells.2da: File not found. iprp_spells may be missing labels.')
@@ -292,7 +281,7 @@ class TLK():
             df_json = df_json[df_json['Name'].str.contains(r'\*{4}', na=True) == False][original_columns]
         elif name == 'iprp_feats':
             # Load feat.json to reference feat names.
-            df_feats = IO.read_labels(os.path.join(self.input_json, f'feat.json'), silent_warnings=True)[['FEAT']]
+            df_feats = IOHelper.read_labels(os.path.join(self.input_json, f'feat.json'), silent_warnings=True)[['FEAT']]
             # Before making any significant adjustments, remember the original columns.
             if 'Name' not in df_json.columns:
                 df_json['Name'] = pd.Series()
@@ -340,7 +329,7 @@ class TLK():
         with open(TLK.TEMP_FILE, 'w') as file:
             json.dump(self.values, file)
         # Once the JSON file exists, we can convert it to a TLK using the NWN_TLK.
-        subprocess.run([NWN_TLK,
+        subprocess.run([self.io.nwn_tlk,
                         '-i', TLK.TEMP_FILE, # Input file [default: -]
                         '-o', tlk_path])    # Output file [default: -]
         # Safely remove the temporary JSON file.
@@ -353,7 +342,7 @@ class TLK():
             os.remove(TLK.TEMP_FILE)
 
     @staticmethod
-    def from_tlk(tlk_path : str, input_2da_folder : str, input_json_folder  : str) -> 'TLK':
+    def from_tlk(tlk_path : str, input_2da_folder : str, input_json_folder  : str, io_helper : IOHelper) -> 'TLK':
         '''Creates a TLK object from a TLK file.'''
         # Ensure the given path is valid.
         if not os.path.isfile(tlk_path) or not tlk_path.lower().endswith('.tlk'):
@@ -363,7 +352,7 @@ class TLK():
         # Safely remove the temporary JSON file.
         TLK.__remove_temp_file__()
         # Convert the TLK file to a JSON file using the NWN_TLK.
-        subprocess.run([NWN_TLK,
+        subprocess.run([io_helper.nwn_tlk,
                         '-i', tlk_path,
                         '-o', TLK.TEMP_FILE])
         if not os.path.isfile(TLK.TEMP_FILE):
@@ -372,7 +361,8 @@ class TLK():
         # If the file was successfully converted, import it.
         with open(TLK.TEMP_FILE, 'r') as file:
             tlk = TLK(input_2da_folder = input_2da_folder,
-                      input_json_folder = input_json_folder)
+                      input_json_folder = input_json_folder,
+                      io_helper = io_helper)
             tlk.values = json.load(file)
             tlk.existing = {entry['text']: entry['id']
                             for entry in tlk.values['entries']}
@@ -383,7 +373,7 @@ class TLK():
         return tlk
 
     @staticmethod
-    def from_json(json_path : str, input_2da_folder : str, input_json_folder  : str) -> 'TLK':
+    def from_json(json_path : str, input_2da_folder : str, input_json_folder  : str, io_helper : IOHelper) -> 'TLK':
         '''Creates a TLK object from a JSON file.'''
         # Ensure the given path is valid.
         if not os.path.isfile(json_path) or not json_path.lower().endswith('.json'):
@@ -395,7 +385,8 @@ class TLK():
                 raise ValueError(f'Unable to proceed due to invalid JSON format: {values.keys()}')
             # The JSON file is valid. Create a new TLK instance and import the values.
             tlk = TLK(input_2da_folder = input_2da_folder,
-                      input_json_folder = input_json_folder)
+                      input_json_folder = input_json_folder,
+                      io_helper = io_helper)
             tlk.values = values
             tlk.existing = {entry['text']: entry['id']
                             for entry in tlk.values['entries']}
@@ -408,16 +399,33 @@ class TlkBuilder():
     '''A class for combining 2DA files and JSON labels to TLK files.'''
 
     def __init__(self,
+        io_helper         : IOHelper,
         static_2da_folder : str,
         input_2da_folder  : str,
         input_json_folder : str,
-        output_folder     : str|List[str],
-        output_tlk_name   : str = '',
-        output_hak_name   : str = '',
+        output_folder     : str|List[str] = 'output',
+        output_tlk_name   : str = 'output.tlk',
+        output_hak_name   : str = 'output.hak',
         tlk_reference     : str = '',
         spell_offset      : int = 5000,
         ) -> None:
         '''Initializes a new TlkBuilder instance.'''
+
+        # Validate the given parameters.
+        if not os.path.exists(static_2da_folder):
+            print(f'Error: Unable to locate static 2DA directory at "{static_2da_folder}"') ; exit(1)
+        if not os.path.exists(input_2da_folder):
+            print(f'Error: Unable to locate input 2DA directory at "{input_2da_folder}"') ; exit(1)
+        if not os.path.exists(input_json_folder):
+            print(f'Error: Unable to locate input JSON directory at "{input_json_folder}"') ; exit(1)
+        if tlk_reference and not os.path.exists(tlk_reference):
+            print(f'Error: Unable to locate specified TLK reference at "{tlk_reference}"') ; exit(1)
+        # Validate the given IOHelper object.
+        if not isinstance(io_helper, IOHelper):
+            raise ValueError(f'Invalid IOHelper object provided: {io_helper}')
+        if spell_offset < 0:
+            raise ValueError(f'Spell offset must be a positive integer, got {spell_offset}')
+
         # Store the input and output directories.
         self.static_2das = static_2da_folder
         self.input_2das  = input_2da_folder
@@ -425,17 +433,18 @@ class TlkBuilder():
         self.output_dir  = output_folder[0] if isinstance(output_folder, list) else output_folder
         self.hak_name    = output_hak_name
         self.tlk_name    = output_tlk_name
+        self.io          = io_helper
 
         # Initialize the TLK object with initial labels, if provided.
         if tlk_reference:
             if tlk_reference.endswith('.tlk'):
-                self.tlk = TLK.from_tlk(tlk_reference, input_2da_folder, input_json_folder)
+                self.tlk = TLK.from_tlk(tlk_reference, input_2da_folder, input_json_folder, io_helper=io_helper)
             elif tlk_reference.endswith('.json'):
-                self.tlk = TLK.from_json(tlk_reference, input_2da_folder, input_json_folder)
+                self.tlk = TLK.from_json(tlk_reference, input_2da_folder, input_json_folder, io_helper=io_helper)
             else:
                 raise ValueError(f'Invalid TLK reference file provided: {tlk_reference}')
         else:
-            self.tlk = TLK(input_2da_folder, input_json_folder)
+            self.tlk = TLK(input_2da_folder, input_json_folder, io_helper=io_helper)
 
         # Process all 2DA files, then create the HAK and TLK.
         processed_2das = self.process_2das(spell_name_desc_offset=spell_offset)
@@ -459,7 +468,7 @@ class TlkBuilder():
         processed = {os.path.basename(file): self.tlk.add_2da_labels(os.path.basename(file)[:-4], spell_name_desc_offset)
                      for file in sorted(glob(os.path.join(self.input_2das, f'*.2da')))}
         # Also load 2DA files without corresponding json files to clear their whitespace and validate them.
-        processed.update({os.path.basename(file): IO.read_2da(file, validate_index=False)
+        processed.update({os.path.basename(file): IOHelper.read_2da(file, validate_index=False)
                           for file in sorted(glob(os.path.join(self.static_2das, f'*.2da')))})
         return processed
 
@@ -468,20 +477,22 @@ class TlkBuilder():
         # Write the updated TLK and 2DA files to the output directory.
         self.tlk.to_tlk(os.path.join(self.output_dir, 'tlk', self.tlk_name))
         for name, df in updated_2das.items():
-            IO.write_2da(df, os.path.join(TEMP_DIR, name))
+            IOHelper.write_2da(df, os.path.join(TLK.TEMP_DIR, name))
 
         # Package the output directory into a HAK file, then wipe the temporary directory.
-        IO.write_hak(TEMP_DIR, os.path.join(self.output_dir, 'hak', self.hak_name))
-        shutil.rmtree(TEMP_DIR)
+        self.io.write_hak(TLK.TEMP_DIR, os.path.join(self.output_dir, 'hak', self.hak_name))
+        shutil.rmtree(TLK.TEMP_DIR)
 
 if __name__ == '__main__':
-    # Run TlkBuilder with the given environment constants.
+    # Run TlkBuilder in the current directory.
+    script_directory = os.path.split(__file__)[0]
+    helper = IOHelper(
+        nwn_erf=os.path.join(script_directory, 'nwn_erf.exe' if sys.platform == 'win32' else 'nwn_erf'),
+        nwn_tlk=os.path.join(script_directory, 'nwn_tlk.exe' if sys.platform == 'win32' else 'nwn_tlk'),
+    )
     TlkBuilder(
-        static_2da_folder = STATIC_2DA_DIR,
-        input_2da_folder  = INPUT_2DA_DIR,
-        input_json_folder = INPUT_JSON_DIR,
-        output_folder     = [USER_DIR, SERVER_DIR],
-        tlk_reference     = ORIGINAL_TLK,
-        output_tlk_name   = f'arelith.tlk',
-        output_hak_name   = f'arelith_hak.hak',
+        static_2da_folder = os.path.join(script_directory, 'static_2da'),
+        input_2da_folder  = os.path.join(script_directory, 'input_2da'),
+        input_json_folder = os.path.join(script_directory, 'input_json'),
+        io_helper = helper,
     )
