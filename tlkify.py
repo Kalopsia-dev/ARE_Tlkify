@@ -10,20 +10,15 @@ import sys                    # For command line arguments.
 import os                     # For OS-level operations.
 
 # Environment constants
-WIN32          = sys.platform == 'win32'
 AREDEV_DIR     = os.getcwd()
 SERVER_DIR     = os.path.join(AREDEV_DIR, 'server')
-TEMP_DIR       = os.path.join(AREDEV_DIR, 'temp', '.TlkBuilder')
+TEMP_DIR       = os.path.join(AREDEV_DIR, 'tmp', '.tlkify')
 ORIGINAL_TLK   = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'Tlk input', 'original.json')
 INPUT_JSON_DIR = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'Input json')
 INPUT_2DA_DIR  = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'Input 2das')
 STATIC_2DA_DIR = os.path.join(AREDEV_DIR, 'are-resources', 'Custom content', 'arelith_2da')
-NWN_ERF        = os.path.join(AREDEV_DIR, 'nwn_erf.exe' if WIN32 else 'nwn_erf')
-NWN_TLK        = os.path.join(AREDEV_DIR, 'nwn_tlk.exe' if WIN32 else 'nwn_tlk')
-HAK_SUFFIX     = '.hak'
-TLK_SUFFIX     = '.tlk'
-TWODA_SUFFIX   = '.2da'
-JSON_SUFFIX    = '.json'
+NWN_ERF        = os.path.join(AREDEV_DIR, 'nwn_erf.exe' if sys.platform == 'win32' else 'nwn_erf')
+NWN_TLK        = os.path.join(AREDEV_DIR, 'nwn_tlk.exe' if sys.platform == 'win32' else 'nwn_tlk')
 
 # Load the game directory from the AREDev builder config file.
 ENV_CONFIG = os.path.join(AREDEV_DIR, 'config', 'builder.conf')
@@ -55,7 +50,7 @@ class IO():
 
     def read_labels(json_path : str, silent_warnings : bool = False) -> pd.DataFrame:
         '''Reads a JSON file containing TLK labels and returns it as a pandas DataFrame.'''
-        if not os.path.isfile(json_path) or not json_path.lower().endswith(JSON_SUFFIX):
+        if not os.path.isfile(json_path) or not json_path.lower().endswith('.json'):
             return pd.DataFrame()
         # Attempt to read the JSON file using different encodings.
         for encoding in ['utf-8', 'utf-8-sig']:
@@ -121,7 +116,7 @@ class IO():
 class TLK():
     '''A class representing the contents of a TLK file.'''
 
-    TEMP_FILE = os.path.join(TEMP_DIR, f'.tmp{JSON_SUFFIX}')
+    TEMP_FILE = os.path.join(TEMP_DIR, f'.tmp.json')
     OFFSET = 16777216 # To differentiate custom TLK ids from defaults.
 
     def __init__(self, input_2da_folder : str, input_json_folder  : str) -> None:
@@ -188,8 +183,8 @@ class TLK():
     def add_2da_labels(self, name : str, spell_name_desc_offset : int = 5000) -> pd.DataFrame:
         '''Updates this TLK object with the contents of a 2DA DataFrame.'''
         # Load the 2DA and JSON files.
-        df_2da  = IO.read_2da(os.path.join(self.input_2das, f'{name}{TWODA_SUFFIX}'))
-        df_json = IO.read_labels(os.path.join(self.input_json, f'{name}{JSON_SUFFIX}'))
+        df_2da  = IO.read_2da(os.path.join(self.input_2das, f'{name}.2da'))
+        df_json = IO.read_labels(os.path.join(self.input_json, f'{name}.json'))
         df_json = self.add_missing_labels(name, df_2da, df_json)
 
         # Drop any columns that are not in the 2DA file.
@@ -272,8 +267,8 @@ class TLK():
         elif name == 'iprp_spells':
             try:
                 # Load spells.2da and spells.json to reference spell names. Exclude feat spells and abilities.
-                df_spells = IO.read_labels(os.path.join(self.input_json, f'spells{JSON_SUFFIX}'), silent_warnings=True).join(
-                            IO.read_2da(os.path.join(self.input_2das, f'spells{TWODA_SUFFIX}')), rsuffix='_2da')[['Name', 'FeatID', 'UserType']]
+                df_spells = IO.read_labels(os.path.join(self.input_json, f'spells.json'), silent_warnings=True).join(
+                            IO.read_2da(os.path.join(self.input_2das, f'spells.2da')), rsuffix='_2da')[['Name', 'FeatID', 'UserType']]
                 df_spells = df_spells[(df_spells['FeatID'] == '****') & (df_spells['UserType'] == '1')]
             except FileNotFoundError:
                 print(f'W: spells.2da: File not found. iprp_spells may be missing labels.')
@@ -297,7 +292,7 @@ class TLK():
             df_json = df_json[df_json['Name'].str.contains(r'\*{4}', na=True) == False][original_columns]
         elif name == 'iprp_feats':
             # Load feat.json to reference feat names.
-            df_feats = IO.read_labels(os.path.join(self.input_json, f'feat{JSON_SUFFIX}'), silent_warnings=True)[['FEAT']]
+            df_feats = IO.read_labels(os.path.join(self.input_json, f'feat.json'), silent_warnings=True)[['FEAT']]
             # Before making any significant adjustments, remember the original columns.
             if 'Name' not in df_json.columns:
                 df_json['Name'] = pd.Series()
@@ -361,7 +356,7 @@ class TLK():
     def from_tlk(tlk_path : str, input_2da_folder : str, input_json_folder  : str) -> 'TLK':
         '''Creates a TLK object from a TLK file.'''
         # Ensure the given path is valid.
-        if not os.path.isfile(tlk_path) or not tlk_path.lower().endswith(TLK_SUFFIX):
+        if not os.path.isfile(tlk_path) or not tlk_path.lower().endswith('.tlk'):
             # The file path is invalid.
             raise FileNotFoundError(f'Unable to proceed due to invalid TLK file path: {tlk_path}')
 
@@ -391,7 +386,7 @@ class TLK():
     def from_json(json_path : str, input_2da_folder : str, input_json_folder  : str) -> 'TLK':
         '''Creates a TLK object from a JSON file.'''
         # Ensure the given path is valid.
-        if not os.path.isfile(json_path) or not json_path.lower().endswith(JSON_SUFFIX):
+        if not os.path.isfile(json_path) or not json_path.lower().endswith('.json'):
             raise FileNotFoundError(f'Unable to proceed due to invalid JSON file path: {json_path}')
         with open(json_path, 'r') as file:
             # Load and validate the JSON file.
@@ -433,9 +428,9 @@ class TlkBuilder():
 
         # Initialize the TLK object with initial labels, if provided.
         if tlk_reference:
-            if tlk_reference.endswith(TLK_SUFFIX):
+            if tlk_reference.endswith('.tlk'):
                 self.tlk = TLK.from_tlk(tlk_reference, input_2da_folder, input_json_folder)
-            elif tlk_reference.endswith(JSON_SUFFIX):
+            elif tlk_reference.endswith('.json'):
                 self.tlk = TLK.from_json(tlk_reference, input_2da_folder, input_json_folder)
             else:
                 raise ValueError(f'Invalid TLK reference file provided: {tlk_reference}')
@@ -462,10 +457,10 @@ class TlkBuilder():
         print('Generating TLK references...')
         # Parse all 2DA files and update the TLK with their JSON strings.
         processed = {os.path.basename(file): self.tlk.add_2da_labels(os.path.basename(file)[:-4], spell_name_desc_offset)
-                     for file in sorted(glob(os.path.join(self.input_2das, f'*{TWODA_SUFFIX}')))}
+                     for file in sorted(glob(os.path.join(self.input_2das, f'*.2da')))}
         # Also load 2DA files without corresponding json files to clear their whitespace and validate them.
         processed.update({os.path.basename(file): IO.read_2da(file, validate_index=False)
-                          for file in sorted(glob(os.path.join(self.static_2das, f'*{TWODA_SUFFIX}')))})
+                          for file in sorted(glob(os.path.join(self.static_2das, f'*.2da')))})
         return processed
 
     def write_output(self, updated_2das : Dict[str, pd.DataFrame]) -> None:
@@ -479,13 +474,14 @@ class TlkBuilder():
         IO.write_hak(TEMP_DIR, os.path.join(self.output_dir, 'hak', self.hak_name))
         shutil.rmtree(TEMP_DIR)
 
-# Run TlkBuilder with the given environment constants.
-TlkBuilder(
-    static_2da_folder = STATIC_2DA_DIR,
-    input_2da_folder  = INPUT_2DA_DIR,
-    input_json_folder = INPUT_JSON_DIR,
-    output_folder     = [USER_DIR, SERVER_DIR],
-    tlk_reference     = ORIGINAL_TLK,
-    output_tlk_name   = f'arelith{TLK_SUFFIX}',
-    output_hak_name   = f'arelith_hak{HAK_SUFFIX}',
-)
+if __name__ == '__main__':
+    # Run TlkBuilder with the given environment constants.
+    TlkBuilder(
+        static_2da_folder = STATIC_2DA_DIR,
+        input_2da_folder  = INPUT_2DA_DIR,
+        input_json_folder = INPUT_JSON_DIR,
+        output_folder     = [USER_DIR, SERVER_DIR],
+        tlk_reference     = ORIGINAL_TLK,
+        output_tlk_name   = f'arelith.tlk',
+        output_hak_name   = f'arelith_hak.hak',
+    )
