@@ -94,7 +94,7 @@ class TLK():
     '''A class representing the contents of a TLK file.'''
 
     # Define the temporary directory and file for TLK operations.
-    TEMP_DIR  = os.path.join(os.getcwd(), 'tmp', '.tlkify')
+    TEMP_DIR  = os.path.join(os.path.split(__file__)[0], 'tmp', '.tlkify')
     TEMP_FILE = os.path.join(TEMP_DIR, f'.tmp.json')
 
     # An offset that differentiates custom TLK entries from standard ones.
